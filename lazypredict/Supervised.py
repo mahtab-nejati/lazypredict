@@ -1,15 +1,98 @@
 """
+Logging Config
+"""
+
+import logging.config
+
+LOG_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": True,
+    "formatters": {
+        "customized": {
+            "format": "%(asctime)s: %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+    },
+    "loggers": {
+        "": {
+            "handlers": [
+                "consoleHandler",
+            ],
+            "level": "DEBUG",
+            "propagate": True,
+        },
+    },
+    "handlers": {
+        "consoleHandler": {
+            "level": "DEBUG",
+            "formatter": "customized",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+        }
+    },
+}
+
+logging.config.dictConfig(config=LOG_CONFIG)
+logging.captureWarnings(True)
+
+logger = logging.getLogger("")
+
+"""
+Time Limit Management
+"""
+from multiprocessing import Process, Queue
+
+
+class TimeoutException(Exception):
+    pass
+
+
+def raise_timeout():
+    raise TimeoutException("TaskTimedOut: The set time limit exceeded.")
+
+
+def timeout(seconds, action=raise_timeout):
+    """Calls any function with timeout after 'seconds'.
+    If a timeout occurs, 'action' will be returned or called if
+    it is a function-like object.
+    """
+
+    def handler(queue, func, args, kwargs):
+        queue.put(func(*args, **kwargs))
+
+    def decorator(func):
+        def wraps(*args, **kwargs):
+            q = Queue()
+            p = Process(target=handler, args=(q, func, args, kwargs))
+            p.start()
+            p.join(timeout=seconds)
+            if p.is_alive():
+                p.terminate()
+                p.join()
+                if hasattr(action, "__call__"):
+                    return action()
+                else:
+                    return action
+            else:
+                return q.get()
+
+        return wraps
+
+    return decorator
+
+
+"""
 Supervised Models
 """
 # Author: Shankar Rao Pandala <shankar.pandala@live.com>
-
+# Extended by: Mattie Nejati <mahtab.nejati@gmail.com>
+import time
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import datetime
-import time
+from pprint import pformat
 from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer, MissingIndicator
+from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, OrdinalEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.utils import all_estimators
@@ -25,9 +108,9 @@ from sklearn.metrics import (
 )
 import warnings
 import xgboost
+import lightgbm
 
 # import catboost
-import lightgbm
 
 warnings.filterwarnings("ignore")
 pd.set_option("display.precision", 2)
@@ -36,36 +119,39 @@ pd.set_option("display.float_format", lambda x: "%.2f" % x)
 removed_classifiers = [
     "ClassifierChain",
     "ComplementNB",
+    "FixedThresholdClassifier",
     "GradientBoostingClassifier",
     "GaussianProcessClassifier",
     "HistGradientBoostingClassifier",
     "MLPClassifier",
-    "LogisticRegressionCV", 
-    "MultiOutputClassifier", 
-    "MultinomialNB", 
+    "LogisticRegressionCV",
+    "MultiOutputClassifier",
+    "MultinomialNB",
     "OneVsOneClassifier",
     "OneVsRestClassifier",
     "OutputCodeClassifier",
     "RadiusNeighborsClassifier",
+    "StackingClassifier",
+    "TunedThresholdClassifierCV",
     "VotingClassifier",
 ]
 
 removed_regressors = [
     "TheilSenRegressor",
-    "ARDRegression", 
-    "CCA", 
-    "IsotonicRegression", 
+    "ARDRegression",
+    "CCA",
+    "IsotonicRegression",
     "StackingRegressor",
-    "MultiOutputRegressor", 
-    "MultiTaskElasticNet", 
-    "MultiTaskElasticNetCV", 
-    "MultiTaskLasso", 
-    "MultiTaskLassoCV", 
-    "PLSCanonical", 
-    "PLSRegression", 
-    "RadiusNeighborsRegressor", 
-    "RegressorChain", 
-    "VotingRegressor", 
+    "MultiOutputRegressor",
+    "MultiTaskElasticNet",
+    "MultiTaskElasticNetCV",
+    "MultiTaskLasso",
+    "MultiTaskLassoCV",
+    "PLSCanonical",
+    "PLSRegression",
+    "RadiusNeighborsRegressor",
+    "RegressorChain",
+    "VotingRegressor",
 ]
 
 CLASSIFIERS = [
@@ -107,7 +193,6 @@ categorical_transformer_high = Pipeline(
     ]
 )
 
-
 # Helper function
 
 
@@ -140,18 +225,22 @@ def get_card_split(df, cols, n=11):
 
 class LazyClassifier:
     """
-    This module helps in fitting to all the classification algorithms that are available in Scikit-learn
+    This module helps in fitting all the classification models that are available in Scikit-learn
     Parameters
     ----------
     verbose : int, optional (default=0)
         For the liblinear and lbfgs solvers set verbose to any positive
         number for verbosity.
-    ignore_warnings : bool, optional (default=True)
+    ignore_warnings : bool, optional (default=False)
         When set to True, the warning related to algorigms that are not able to run are ignored.
     custom_metric : function, optional (default=None)
         When function is provided, models are evaluated based on the custom evaluation metric provided.
-    prediction : bool, optional (default=False)
-        When set to True, the predictions of all the models models are returned as dataframe.
+    provide_prediction : bool, optional (default=True)
+        When set to True, the predictions of all the models are returned as dataframe.
+    provide_models : bool, optional (default=True)
+        When set to True, the trained model objects are returned as in a dictionary, with keys being model names.
+    preprocess_data: Bool, optional (default=False)
+        When set to True, default preprocessing will be applied to the data.
     classifiers : list, optional (default="all")
         When function is provided, trains the chosen classifier(s).
 
@@ -165,9 +254,8 @@ class LazyClassifier:
     >>> y= data.target
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=.5,random_state =123)
     >>> clf = LazyClassifier(verbose=0,ignore_warnings=True, custom_metric=None)
-    >>> models,predictions = clf.fit(X_train, X_test, y_train, y_test)
-    >>> model_dictionary = clf.provide_models(X_train,X_test,y_train,y_test)
-    >>> models
+    >>> scores, predictions, models = clf.fit(X_train, X_test, y_train, y_test)
+    >>> scores
     | Model                          |   Accuracy |   Balanced Accuracy |   ROC AUC |   F1 Score |   Time Taken |
     |:-------------------------------|-----------:|--------------------:|----------:|-----------:|-------------:|
     | LinearSVC                      |   0.989474 |            0.987544 |  0.987544 |   0.989462 |    0.0150008 |
@@ -205,21 +293,27 @@ class LazyClassifier:
     def __init__(
         self,
         verbose=0,
-        ignore_warnings=True,
+        ignore_warnings=False,
         custom_metric=None,
-        predictions=False,
+        provide_predictions=True,
+        provide_models=True,
+        preprocess_data=False,
         random_state=42,
         classifiers="all",
     ):
         self.verbose = verbose
         self.ignore_warnings = ignore_warnings
         self.custom_metric = custom_metric
-        self.predictions = predictions
+        self.provide_predictions = provide_predictions
+        self.provide_models = provide_models
+        self.preprocess_data = preprocess_data
         self.models = {}
         self.random_state = random_state
         self.classifiers = classifiers
 
-    def fit(self, X_train, X_test, y_train, y_test):
+    def fit(
+        self, X_train, X_test, y_train, y_test, time_limit_per_model=None, verbose=True
+    ):
         """Fit Classification algorithms to X_train and y_train, predict and score on X_test, y_test.
         Parameters
         ----------
@@ -235,6 +329,11 @@ class LazyClassifier:
         y_test : array-like,
             Testing vectors, where rows is the number of samples
             and columns is the number of features.
+        time_limit_per_model : Int,
+            Seconds allowed for fitting each model on data. Raises
+            TimeoutException if it exceeds the time limit.
+        verbose : bool, optional (default=True)
+            When set to True, logs the fitting process of all methods.
         Returns
         -------
         scores : Pandas DataFrame
@@ -242,6 +341,7 @@ class LazyClassifier:
         predictions : Pandas DataFrame
             Returns predictions of all the models in a Pandas DataFrame.
         """
+        logger.disabled = not verbose
         Accuracy = []
         B_Accuracy = []
         ROC_AUC = []
@@ -257,20 +357,29 @@ class LazyClassifier:
             X_train = pd.DataFrame(X_train)
             X_test = pd.DataFrame(X_test)
 
-        numeric_features = X_train.select_dtypes(include=[np.number]).columns
-        categorical_features = X_train.select_dtypes(include=["object"]).columns
+        if self.preprocess_data:
+            logger.info(f"Building Preprocessor.")
 
-        categorical_low, categorical_high = get_card_split(
-            X_train, categorical_features
-        )
+            numeric_features = X_train.select_dtypes(include=[np.number]).columns
+            categorical_features = X_train.select_dtypes(include=["object"]).columns
+            categorical_low, categorical_high = get_card_split(
+                X_train, categorical_features
+            )
 
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ("numeric", numeric_transformer, numeric_features),
-                ("categorical_low", categorical_transformer_low, categorical_low),
-                ("categorical_high", categorical_transformer_high, categorical_high),
-            ]
-        )
+            preprocessor = ColumnTransformer(
+                transformers=[
+                    ("numeric", numeric_transformer, numeric_features),
+                    ("categorical_low", categorical_transformer_low, categorical_low),
+                    (
+                        "categorical_high",
+                        categorical_transformer_high,
+                        categorical_high,
+                    ),
+                ]
+            )
+            preprocess_step = [("preprocessor", preprocessor)]
+        else:
+            preprocess_step = []
 
         if self.classifiers == "all":
             self.classifiers = CLASSIFIERS
@@ -282,158 +391,153 @@ class LazyClassifier:
                     temp_list.append(full_name)
                 self.classifiers = temp_list
             except Exception as exception:
-                print(exception)
-                print("Invalid Classifier(s)")
+                logger.info(exception)
+                logger.info("Invalid Classifier(s)")
 
         for name, model in tqdm(self.classifiers):
+            logger.info("")
+            logger.info(f"Working on model {name}")
             start = time.time()
             try:
                 if "random_state" in model().get_params().keys():
-                    pipe = Pipeline(
-                        steps=[
-                            ("preprocessor", preprocessor),
-                            ("classifier", model(random_state=self.random_state)),
-                        ]
-                    )
+                    model_step = [("classifier", model(random_state=self.random_state))]
                 else:
-                    pipe = Pipeline(
-                        steps=[("preprocessor", preprocessor), ("classifier", model())]
-                    )
+                    model_step = [("classifier", model())]
 
-                pipe.fit(X_train, y_train)
-                self.models[name] = pipe
-                y_pred = pipe.predict(X_test)
+                pipeline_steps = preprocess_step + model_step
+                pipe = Pipeline(steps=pipeline_steps)
+
+                if time_limit_per_model is None:
+                    logger.info("No time limit.")
+                    logger.info("Start Fitting.")
+                    pipe.fit(X_train, y_train)
+                    logger.info("Start predicting.")
+                    y_pred = pipe.predict(X_test)
+                else:
+                    logger.info(f"With time limit of {time_limit_per_model}.")
+
+                    @timeout(time_limit_per_model)
+                    def fit_predict():
+                        try:
+                            logger.info("Start Fitting.")
+                            pipe.fit(X_train, y_train)
+                            logger.info("Start predicting.")
+                            y_pred = pipe.predict(X_test)
+                            return pipe, y_pred
+                        except Exception as exception:
+                            return None, None, exception
+
+                    pipe, y_pred, exception = fit_predict()
+                    if not exception is None:
+                        if self.ignore_warnings is False:
+                            logger.info(name + " model failed to execute.")
+                            logger.info(exception)
+                        continue
+
+                logger.info("Calculating accuracy_score.")
                 accuracy = accuracy_score(y_test, y_pred, normalize=True)
+                logger.info("Calculating balanced_accuracy_score.")
                 b_accuracy = balanced_accuracy_score(y_test, y_pred)
-                f1 = f1_score(y_test, y_pred, average="weighted")
+                logger.info("Calculating f1_score.")
+                f1 = f1_score(y_test, y_pred, average="weighted.")
                 try:
+                    logger.info("Calculating roc_auc_score.")
                     roc_auc = roc_auc_score(y_test, y_pred)
                 except Exception as exception:
                     roc_auc = None
                     if self.ignore_warnings is False:
-                        print("ROC AUC couldn't be calculated for " + name)
-                        print(exception)
+                        logger.info("ROC AUC couldn't be calculated for " + name)
+                        logger.info(exception)
+                if self.custom_metric is not None:
+                    logger.info(
+                        f"Calculating custom metric {self.custom_metric.__name__}"
+                    )
+                    custom_metric = self.custom_metric(y_test, y_pred)
+                    CUSTOM_METRIC.append(custom_metric)
+
+                logger.info("Recording outcomes.")
+                self.models[name] = pipe
                 names.append(name)
                 Accuracy.append(accuracy)
                 B_Accuracy.append(b_accuracy)
                 ROC_AUC.append(roc_auc)
                 F1.append(f1)
                 TIME.append(time.time() - start)
-                if self.custom_metric is not None:
-                    custom_metric = self.custom_metric(y_test, y_pred)
-                    CUSTOM_METRIC.append(custom_metric)
+
                 if self.verbose > 0:
+                    scores_verbose = {
+                        "Model": name,
+                        "Accuracy": accuracy,
+                        "Balanced Accuracy": b_accuracy,
+                        "ROC AUC": roc_auc,
+                        "F1 Score": f1,
+                        self.custom_metric.__name__: custom_metric,
+                        "Time taken": time.time() - start,
+                    }
                     if self.custom_metric is not None:
-                        print(
-                            {
-                                "Model": name,
-                                "Accuracy": accuracy,
-                                "Balanced Accuracy": b_accuracy,
-                                "ROC AUC": roc_auc,
-                                "F1 Score": f1,
-                                self.custom_metric.__name__: custom_metric,
-                                "Time taken": time.time() - start,
-                            }
-                        )
-                    else:
-                        print(
-                            {
-                                "Model": name,
-                                "Accuracy": accuracy,
-                                "Balanced Accuracy": b_accuracy,
-                                "ROC AUC": roc_auc,
-                                "F1 Score": f1,
-                                "Time taken": time.time() - start,
-                            }
-                        )
-                if self.predictions:
+                        scores_verbose[self.custom_metric.__name__] = custom_metric
+                    logger.info(pformat(scores_verbose))
+
+                if self.provide_predictions:
                     predictions[name] = y_pred
+
             except Exception as exception:
                 if self.ignore_warnings is False:
-                    print(name + " model failed to execute")
-                    print(exception)
+                    logger.info(name + " model failed to execute.")
+                    logger.info(exception)
+
+        scores = {
+            "Model": names,
+            "Accuracy": Accuracy,
+            "Balanced Accuracy": B_Accuracy,
+            "ROC AUC": ROC_AUC,
+            "F1 Score": F1,
+            "Time Taken": TIME,
+        }
+
         if self.custom_metric is None:
-            scores = pd.DataFrame(
-                {
-                    "Model": names,
-                    "Accuracy": Accuracy,
-                    "Balanced Accuracy": B_Accuracy,
-                    "ROC AUC": ROC_AUC,
-                    "F1 Score": F1,
-                    "Time Taken": TIME,
-                }
-            )
-        else:
-            scores = pd.DataFrame(
-                {
-                    "Model": names,
-                    "Accuracy": Accuracy,
-                    "Balanced Accuracy": B_Accuracy,
-                    "ROC AUC": ROC_AUC,
-                    "F1 Score": F1,
-                    self.custom_metric.__name__: CUSTOM_METRIC,
-                    "Time Taken": TIME,
-                }
-            )
+            scores[self.custom_metric.__name__] = CUSTOM_METRIC
+        scores = pd.DataFrame(scores)
         scores = scores.sort_values(by="Balanced Accuracy", ascending=False).set_index(
             "Model"
         )
 
-        if self.predictions:
+        if self.provide_predictions:
             predictions_df = pd.DataFrame.from_dict(predictions)
-        return scores, predictions_df if self.predictions is True else scores
 
-    def provide_models(self, X_train, X_test, y_train, y_test):
-        """
-        This function returns all the model objects trained in fit function.
-        If fit is not called already, then we call fit and then return the models.
-        Parameters
-        ----------
-        X_train : array-like,
-            Training vectors, where rows is the number of samples
-            and columns is the number of features.
-        X_test : array-like,
-            Testing vectors, where rows is the number of samples
-            and columns is the number of features.
-        y_train : array-like,
-            Training vectors, where rows is the number of samples
-            and columns is the number of features.
-        y_test : array-like,
-            Testing vectors, where rows is the number of samples
-            and columns is the number of features.
-        Returns
-        -------
-        models: dict-object,
-            Returns a dictionary with each model pipeline as value 
-            with key as name of models.
-        """
-        if len(self.models.keys()) == 0:
-            self.fit(X_train, X_test, y_train, y_test)
-
-        return self.models
+        logger.disabled = False
+        return (
+            scores,
+            predictions_df if self.provide_predictions else None,
+            self.models if self.provide_models else None,
+        )
 
 
 def adjusted_rsquared(r2, n, p):
     return 1 - (1 - r2) * ((n - 1) / (n - p - 1))
 
 
-# Helper class for performing classification
+# Helper class for performing regression
 
 
 class LazyRegressor:
     """
-    This module helps in fitting regression models that are available in Scikit-learn
+    This module helps in fitting all the regression models that are available in Scikit-learn
     Parameters
     ----------
     verbose : int, optional (default=0)
         For the liblinear and lbfgs solvers set verbose to any positive
         number for verbosity.
-    ignore_warnings : bool, optional (default=True)
+    ignore_warnings : bool, optional (default=False)
         When set to True, the warning related to algorigms that are not able to run are ignored.
     custom_metric : function, optional (default=None)
         When function is provided, models are evaluated based on the custom evaluation metric provided.
-    prediction : bool, optional (default=False)
-        When set to True, the predictions of all the models models are returned as dataframe.
+    provide_prediction : bool, optional (default=True)
+        When set to True, the predictions of all the models are returned as dataframe.
+    provide_models : bool, optional (default=True)
+        When set to True, the trained model objects are returned as in a dictionary, with keys being model names.
+    preprocess_data: Bool, optional (default=False)
+        When set to True, default preprocessing will be applied to the data.
     regressors : list, optional (default="all")
         When function is provided, trains the chosen regressor(s).
 
@@ -452,10 +556,9 @@ class LazyRegressor:
     >>> X_train, y_train = X[:offset], y[:offset]
     >>> X_test, y_test = X[offset:], y[offset:]
 
-    >>> reg = LazyRegressor(verbose=0, ignore_warnings=False, custom_metric=None)
-    >>> models, predictions = reg.fit(X_train, X_test, y_train, y_test)
-    >>> model_dictionary = reg.provide_models(X_train, X_test, y_train, y_test)
-    >>> models
+    >>> reg = LazyRegressor(verbose=0, ignore_warnings=True, custom_metric=None)
+    >>> scores, predictions, models = reg.fit(X_train, X_test, y_train, y_test)
+    >>> scores
     | Model                         |   Adjusted R-Squared |   R-Squared |     RMSE |   Time Taken |
     |:------------------------------|---------------------:|------------:|---------:|-------------:|
     | ExtraTreesRegressor           |           0.378921   |  0.520076   |  54.2202 |   0.121466   |
@@ -504,21 +607,27 @@ class LazyRegressor:
     def __init__(
         self,
         verbose=0,
-        ignore_warnings=True,
+        ignore_warnings=False,
         custom_metric=None,
-        predictions=False,
+        provide_predictions=True,
+        provide_models=True,
+        preprocess_data=False,
         random_state=42,
         regressors="all",
     ):
         self.verbose = verbose
         self.ignore_warnings = ignore_warnings
         self.custom_metric = custom_metric
-        self.predictions = predictions
+        self.provide_predictions = provide_predictions
+        self.provide_models = provide_models
+        self.preprocess_data = preprocess_data
         self.models = {}
         self.random_state = random_state
         self.regressors = regressors
 
-    def fit(self, X_train, X_test, y_train, y_test):
+    def fit(
+        self, X_train, X_test, y_train, y_test, time_limit_per_model=None, verbose=True
+    ):
         """Fit Regression algorithms to X_train and y_train, predict and score on X_test, y_test.
         Parameters
         ----------
@@ -534,6 +643,11 @@ class LazyRegressor:
         y_test : array-like,
             Testing vectors, where rows is the number of samples
             and columns is the number of features.
+        time_limit_per_model : Int,
+            Seconds allowed for fitting each model on data. Raises
+            TimeoutException if it exceeds the time limit.
+        verbose : bool, optional (default=True)
+            When set to True, logs the fitting process of all methods.
         Returns
         -------
         scores : Pandas DataFrame
@@ -541,6 +655,7 @@ class LazyRegressor:
         predictions : Pandas DataFrame
             Returns predictions of all the models in a Pandas DataFrame.
         """
+        logger.disabled = not verbose
         R2 = []
         ADJR2 = []
         RMSE = []
@@ -549,27 +664,36 @@ class LazyRegressor:
         TIME = []
         predictions = {}
 
-        if self.custom_metric:
+        if self.custom_metric is not None:
             CUSTOM_METRIC = []
 
         if isinstance(X_train, np.ndarray):
             X_train = pd.DataFrame(X_train)
             X_test = pd.DataFrame(X_test)
 
-        numeric_features = X_train.select_dtypes(include=[np.number]).columns
-        categorical_features = X_train.select_dtypes(include=["object"]).columns
+        if self.preprocess_data:
+            logger.info(f"Building Preprocessor.")
 
-        categorical_low, categorical_high = get_card_split(
-            X_train, categorical_features
-        )
+            numeric_features = X_train.select_dtypes(include=[np.number]).columns
+            categorical_features = X_train.select_dtypes(include=["object"]).columns
+            categorical_low, categorical_high = get_card_split(
+                X_train, categorical_features
+            )
 
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ("numeric", numeric_transformer, numeric_features),
-                ("categorical_low", categorical_transformer_low, categorical_low),
-                ("categorical_high", categorical_transformer_high, categorical_high),
-            ]
-        )
+            preprocessor = ColumnTransformer(
+                transformers=[
+                    ("numeric", numeric_transformer, numeric_features),
+                    ("categorical_low", categorical_transformer_low, categorical_low),
+                    (
+                        "categorical_high",
+                        categorical_transformer_high,
+                        categorical_high,
+                    ),
+                ]
+            )
+            preprocess_step = [("preprocessor", preprocessor)]
+        else:
+            preprocess_step = []
 
         if self.regressors == "all":
             self.regressors = REGRESSORS
@@ -581,43 +705,71 @@ class LazyRegressor:
                     temp_list.append(full_name)
                 self.regressors = temp_list
             except Exception as exception:
-                print(exception)
-                print("Invalid Regressor(s)")
+                logger.info(exception)
+                logger.info("Invalid Regressor(s)")
 
         for name, model in tqdm(self.regressors):
+            logger.info("")
+            logger.info(f"Working on model {name}")
             start = time.time()
             try:
                 if "random_state" in model().get_params().keys():
-                    pipe = Pipeline(
-                        steps=[
-                            ("preprocessor", preprocessor),
-                            ("regressor", model(random_state=self.random_state)),
-                        ]
-                    )
+                    model_step = [("regressor", model(random_state=self.random_state))]
                 else:
-                    pipe = Pipeline(
-                        steps=[("preprocessor", preprocessor), ("regressor", model())]
-                    )
+                    model_step = [("regressor", model())]
 
-                pipe.fit(X_train, y_train)
-                self.models[name] = pipe
-                y_pred = pipe.predict(X_test)
+                pipeline_steps = preprocess_step + model_step
+                pipe = Pipeline(steps=pipeline_steps)
 
+                if time_limit_per_model is None:
+                    logger.info("No time limit.")
+                    logger.info("Start Fitting.")
+                    pipe.fit(X_train, y_train)
+                    logger.info("Start predicting.")
+                    y_pred = pipe.predict(X_test)
+                else:
+                    logger.info(f"With time limit of {time_limit_per_model}.")
+
+                    @timeout(time_limit_per_model)
+                    def fit_predict():
+                        try:
+                            logger.info("Start Fitting.")
+                            pipe.fit(X_train, y_train)
+                            logger.info("Start predicting.")
+                            y_pred = pipe.predict(X_test)
+                            return pipe, y_pred
+                        except Exception as exception:
+                            return None, None, exception
+
+                    pipe, y_pred, exception = fit_predict()
+                    if not exception is None:
+                        if self.ignore_warnings is False:
+                            logger.info(name + " model failed to execute.")
+                            logger.info(exception)
+                        continue
+
+                logger.info("Calculating r2_score.")
                 r_squared = r2_score(y_test, y_pred)
+                logger.info("Calculating adjusted_rsquared.")
                 adj_rsquared = adjusted_rsquared(
                     r_squared, X_test.shape[0], X_test.shape[1]
                 )
+                logger.info("Calculating sqrt(mean_squared_error).")
                 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+                if self.custom_metric is not None:
+                    logger.info(
+                        f"Calculating custom metric {self.custom_metric.__name__}"
+                    )
+                    custom_metric = self.custom_metric(y_test, y_pred)
+                    CUSTOM_METRIC.append(custom_metric)
 
+                logger.info("Recording outcomes.")
+                self.models[name] = pipe
                 names.append(name)
                 R2.append(r_squared)
                 ADJR2.append(adj_rsquared)
                 RMSE.append(rmse)
                 TIME.append(time.time() - start)
-
-                if self.custom_metric:
-                    custom_metric = self.custom_metric(y_test, y_pred)
-                    CUSTOM_METRIC.append(custom_metric)
 
                 if self.verbose > 0:
                     scores_verbose = {
@@ -627,17 +779,17 @@ class LazyRegressor:
                         "RMSE": rmse,
                         "Time taken": time.time() - start,
                     }
-
-                    if self.custom_metric:
+                    if self.custom_metric is not None:
                         scores_verbose[self.custom_metric.__name__] = custom_metric
+                    logger.info(pformat(scores_verbose))
 
-                    print(scores_verbose)
-                if self.predictions:
+                if self.provide_predictions:
                     predictions[name] = y_pred
+
             except Exception as exception:
                 if self.ignore_warnings is False:
-                    print(name + " model failed to execute")
-                    print(exception)
+                    logger.info(name + " model failed to execute.")
+                    logger.info(exception)
 
         scores = {
             "Model": names,
@@ -655,38 +807,15 @@ class LazyRegressor:
             "Model"
         )
 
-        if self.predictions:
+        if self.provide_predictions:
             predictions_df = pd.DataFrame.from_dict(predictions)
-        return scores, predictions_df if self.predictions is True else scores
 
-    def provide_models(self, X_train, X_test, y_train, y_test):
-        """
-        This function returns all the model objects trained in fit function.
-        If fit is not called already, then we call fit and then return the models.
-        Parameters
-        ----------
-        X_train : array-like,
-            Training vectors, where rows is the number of samples
-            and columns is the number of features.
-        X_test : array-like,
-            Testing vectors, where rows is the number of samples
-            and columns is the number of features.
-        y_train : array-like,
-            Training vectors, where rows is the number of samples
-            and columns is the number of features.
-        y_test : array-like,
-            Testing vectors, where rows is the number of samples
-            and columns is the number of features.
-        Returns
-        -------
-        models: dict-object,
-            Returns a dictionary with each model pipeline as value 
-            with key as name of models.
-        """
-        if len(self.models.keys()) == 0:
-            self.fit(X_train, X_test, y_train, y_test)
-
-        return self.models
+        logger.disabled = False
+        return (
+            scores,
+            predictions_df if self.provide_predictions else None,
+            self.models if self.provide_models else None,
+        )
 
 
 Regression = LazyRegressor
