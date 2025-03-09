@@ -40,46 +40,7 @@ logger = logging.getLogger("")
 """
 Time Limit Management
 """
-from multiprocessing import Process, Queue
-
-
-class TimeoutException(Exception):
-    pass
-
-
-def raise_timeout():
-    raise TimeoutException("TaskTimedOut: The set time limit exceeded.")
-
-
-def timeout(seconds, action=raise_timeout):
-    """Calls any function with timeout after 'seconds'.
-    If a timeout occurs, 'action' will be returned or called if
-    it is a function-like object.
-    """
-
-    def handler(queue, func, args, kwargs):
-        queue.put(func(*args, **kwargs))
-
-    def decorator(func):
-        def wraps(*args, **kwargs):
-            q = Queue()
-            p = Process(target=handler, args=(q, func, args, kwargs))
-            p.start()
-            p.join(timeout=seconds)
-            if p.is_alive():
-                p.terminate()
-                p.join()
-                if hasattr(action, "__call__"):
-                    return action()
-                else:
-                    return action
-            else:
-                return q.get()
-
-        return wraps
-
-    return decorator
-
+from mytimeout import timeout
 
 """
 Supervised Models
@@ -403,54 +364,54 @@ class LazyClassifier:
             logger.info("")
             logger.info(f"Working on model {name}")
             start = time.time()
+
+            if "random_state" in model().get_params().keys():
+                model_step = [("classifier", model(random_state=self.random_state))]
+            else:
+                model_step = [("classifier", model())]
+
+            pipeline_steps = preprocess_step + model_step
+            pipe = Pipeline(steps=pipeline_steps)
+
             try:
-                if "random_state" in model().get_params().keys():
-                    model_step = [("classifier", model(random_state=self.random_state))]
-                else:
-                    model_step = [("classifier", model())]
-
-                pipeline_steps = preprocess_step + model_step
-                pipe = Pipeline(steps=pipeline_steps)
-
                 if time_limit_per_model is None:
                     logger.info("No time limit.")
-                    logger.info("Start Fitting.")
+                    logger.info("Fitting...")
                     pipe.fit(X_train, y_train)
-                    logger.info("Start predicting.")
+                    logger.info("Predicting...")
                     y_pred = pipe.predict(X_test)
                     if self.provide_probabilities:
-                        logger.info("Start predicting probabilities.")
-                        y_prob = pipe.predict_proba(X_test)
+                        if hasattr(model, "predict_proba"):
+                            logger.info("Predicting probabilities...")
+                            y_prob = pipe.predict_proba(X_test)
+                        else:
+                            logger.info(f"{name} does not support probabilities.")
                 else:
                     logger.info(f"With time limit of {time_limit_per_model}.")
 
                     @timeout(time_limit_per_model)
                     def fit_predict():
-                        try:
-                            logger.info("Start Fitting.")
-                            pipe.fit(X_train, y_train)
-                            logger.info("Start predicting.")
-                            y_pred = pipe.predict(X_test)
-                            if self.provide_probabilities:
-                                logger.info("Start predicting probabilities.")
+                        logger.info("Fitting...")
+                        pipe.fit(X_train, y_train)
+                        logger.info("Predicting...")
+                        y_pred = pipe.predict(X_test)
+                        if self.provide_probabilities:
+                            if hasattr(model, "predict_proba"):
+                                logger.info("Predicting probabilities...")
                                 y_prob = pipe.predict_proba(X_test)
-                            return pipe, y_pred, y_prob, None
-                        except Exception as exception:
-                            return None, None, None, exception
+                            else:
+                                logger.info(f"{name} does not support probabilities.")
+                                y_prob = None
+                        return (pipe, y_pred, y_prob)
 
-                    pipe, y_pred, y_prob, exception = fit_predict()
-                    if not exception is None:
-                        if self.ignore_warnings is False:
-                            logger.info(name + " model failed to execute.")
-                            logger.info(exception)
-                        continue
+                    pipe, y_pred, y_prob = fit_predict()
 
                 logger.info("Calculating accuracy_score.")
                 accuracy = accuracy_score(y_test, y_pred, normalize=True)
                 logger.info("Calculating balanced_accuracy_score.")
                 b_accuracy = balanced_accuracy_score(y_test, y_pred)
                 logger.info("Calculating f1_score.")
-                f1 = f1_score(y_test, y_pred, average="weighted.")
+                f1 = f1_score(y_test, y_pred, average="weighted")
                 try:
                     logger.info("Calculating roc_auc_score.")
                     roc_auc = roc_auc_score(y_test, y_pred)
@@ -487,12 +448,13 @@ class LazyClassifier:
                     }
                     if self.custom_metric is not None:
                         scores_verbose[self.custom_metric.__name__] = custom_metric
-                    logger.info(pformat(scores_verbose))
+                    logger.info(f"\n{pformat(scores_verbose)}")
 
                 if self.provide_predictions:
                     predictions[name] = y_pred
                 if self.provide_probabilities:
-                    probabilities[name] = y_prob
+                    for i in range(y_prob.shape[1]):
+                        probabilities[f"{name}_class_{i}"] = y_prob[:, i]
 
             except Exception as exception:
                 if self.ignore_warnings is False:
@@ -508,7 +470,7 @@ class LazyClassifier:
             "Time Taken": TIME,
         }
 
-        if self.custom_metric is None:
+        if self.custom_metric is not None:
             scores[self.custom_metric.__name__] = CUSTOM_METRIC
         scores = pd.DataFrame(scores)
         scores = scores.sort_values(by="Balanced Accuracy", ascending=False).set_index(
@@ -744,7 +706,9 @@ class LazyRegressor:
                     logger.info("Start predicting.")
                     y_pred = pipe.predict(X_test)
                 else:
-                    logger.info(f"With time limit of {time_limit_per_model}.")
+                    logger.info(
+                        f"With time limit of {time_limit_per_model//60}m:{time_limit_per_model%60}s."
+                    )
 
                     @timeout(time_limit_per_model)
                     def fit_predict():
@@ -797,7 +761,7 @@ class LazyRegressor:
                     }
                     if self.custom_metric is not None:
                         scores_verbose[self.custom_metric.__name__] = custom_metric
-                    logger.info(pformat(scores_verbose))
+                    logger.info(f"\n{pformat(scores_verbose)}")
 
                 if self.provide_predictions:
                     predictions[name] = y_pred
@@ -815,7 +779,7 @@ class LazyRegressor:
             "Time Taken": TIME,
         }
 
-        if self.custom_metric:
+        if self.custom_metric is not None:
             scores[self.custom_metric.__name__] = CUSTOM_METRIC
 
         scores = pd.DataFrame(scores)
