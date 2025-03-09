@@ -40,7 +40,7 @@ logger = logging.getLogger("")
 """
 Time Limit Management
 """
-from mytimeout import timeout
+from .mytimeout import timeout
 
 """
 Supervised Models
