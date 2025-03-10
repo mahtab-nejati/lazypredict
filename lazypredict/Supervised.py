@@ -47,7 +47,7 @@ Supervised Models
 """
 # Author: Shankar Rao Pandala <shankar.pandala@live.com>
 # Extended by: Mattie Nejati <mahtab.nejati@gmail.com>
-import time
+import time, gc
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -370,6 +370,7 @@ class LazyClassifier:
         for name, model in tqdm(self.classifiers):
             logger.info("")
             logger.info(f"Working on model {name}")
+            gc.collect()
             start = time.time()
 
             if "random_state" in model().get_params().keys():
