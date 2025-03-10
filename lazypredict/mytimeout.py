@@ -39,7 +39,7 @@ def timeout(seconds):
                     break
                 time.sleep(2)
                 if (time.time() - start_time) // 60 == 60 * 5 * log_counter:
-                    print("Timeout process still alive.")
+                    print("Timeout watchdog process still alive.")
                     log_counter += 1
             else:
                 result = None
