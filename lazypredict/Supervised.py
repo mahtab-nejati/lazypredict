@@ -205,6 +205,8 @@ class LazyClassifier:
         When set to True, default preprocessing will be applied to the data.
     classifiers : list, optional (default="all")
         When function is provided, trains the chosen classifier(s).
+    exclude_classifiers : list, optional (default=[])
+        When function name is provided, excludes the chosen classifier(s) from training.
 
     Examples
     --------
@@ -262,6 +264,7 @@ class LazyClassifier:
         preprocess_data=False,
         random_state=42,
         classifiers="all",
+        exclude_classifiers=[],
     ):
         self.verbose = verbose
         self.ignore_warnings = ignore_warnings
@@ -272,6 +275,7 @@ class LazyClassifier:
         self.models = {}
         self.random_state = random_state
         self.classifiers = classifiers
+        self.excluded_classifiers = exclude_classifiers
 
     def fit(
         self, X_train, X_test, y_train, y_test, time_limit_per_model=None, verbose=True
@@ -355,6 +359,13 @@ class LazyClassifier:
             except Exception as exception:
                 logger.info(exception)
                 logger.info("Invalid Classifier(s)")
+
+        if self.excluded_classifiers:
+            self.classifiers = list(
+                filter(
+                    lambda p: p[0] not in self.excluded_classifiers, self.classifiers
+                )
+            )
 
         for name, model in tqdm(self.classifiers):
             logger.info("")
@@ -495,6 +506,8 @@ class LazyRegressor:
         When set to True, default preprocessing will be applied to the data.
     regressors : list, optional (default="all")
         When function is provided, trains the chosen regressor(s).
+    exclude_regressors : list, optional (default=[])
+        When function name is provided, excludes the chosen regressor(s) from training.
 
     Examples
     --------
@@ -569,6 +582,7 @@ class LazyRegressor:
         preprocess_data=False,
         random_state=42,
         regressors="all",
+        exclude_regressors=[],
     ):
         self.verbose = verbose
         self.ignore_warnings = ignore_warnings
@@ -579,6 +593,7 @@ class LazyRegressor:
         self.models = {}
         self.random_state = random_state
         self.regressors = regressors
+        self.excluded_regressors = exclude_regressors
 
     def fit(
         self, X_train, X_test, y_train, y_test, time_limit_per_model=None, verbose=True
@@ -662,6 +677,11 @@ class LazyRegressor:
             except Exception as exception:
                 logger.info(exception)
                 logger.info("Invalid Regressor(s)")
+
+        if self.excluded_regressors:
+            self.regressors = list(
+                filter(lambda p: p[0] not in self.excluded_regressors, self.regressors)
+            )
 
         for name, model in tqdm(self.regressors):
             logger.info("")
