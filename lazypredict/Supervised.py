@@ -198,8 +198,6 @@ class LazyClassifier:
         When function is provided, models are evaluated based on the custom evaluation metric provided.
     provide_prediction : bool, optional (default=True)
         When set to True, the predictions of all the models are returned as dataframe.
-    provide_probabilities : bool, optional (default=True)
-        When set to True, the probabilities of all the models are returned as dataframe.
     provide_models : bool, optional (default=True)
         When set to True, the trained model objects are returned as in a dictionary, with keys being model names.
     preprocess_data: Bool, optional (default=False)
@@ -259,7 +257,6 @@ class LazyClassifier:
         ignore_warnings=False,
         custom_metric=None,
         provide_predictions=True,
-        provide_probabilities=True,
         provide_models=True,
         preprocess_data=False,
         random_state=42,
@@ -269,7 +266,6 @@ class LazyClassifier:
         self.ignore_warnings = ignore_warnings
         self.custom_metric = custom_metric
         self.provide_predictions = provide_predictions
-        self.provide_probabilities = provide_probabilities
         self.provide_models = provide_models
         self.preprocess_data = preprocess_data
         self.models = {}
@@ -314,7 +310,6 @@ class LazyClassifier:
         names = []
         TIME = []
         predictions = {}
-        probabilities = {}
 
         if self.custom_metric is not None:
             CUSTOM_METRIC = []
@@ -380,12 +375,6 @@ class LazyClassifier:
                     pipe.fit(X_train, y_train)
                     logger.info("Predicting...")
                     y_pred = pipe.predict(X_test)
-                    if self.provide_probabilities:
-                        if hasattr(model, "predict_proba"):
-                            logger.info("Predicting probabilities...")
-                            y_prob = pipe.predict_proba(X_test)
-                        else:
-                            logger.info(f"{name} does not support probabilities.")
                 else:
                     logger.info(f"With time limit of {time_limit_per_model}.")
 
@@ -395,16 +384,9 @@ class LazyClassifier:
                         pipe.fit(X_train, y_train)
                         logger.info("Predicting...")
                         y_pred = pipe.predict(X_test)
-                        if self.provide_probabilities:
-                            if hasattr(model, "predict_proba"):
-                                logger.info("Predicting probabilities...")
-                                y_prob = pipe.predict_proba(X_test)
-                            else:
-                                logger.info(f"{name} does not support probabilities.")
-                                y_prob = None
-                        return (pipe, y_pred, y_prob)
+                        return (pipe, y_pred)
 
-                    pipe, y_pred, y_prob = fit_predict()
+                    pipe, y_pred = fit_predict()
 
                 logger.info("Calculating accuracy_score.")
                 accuracy = accuracy_score(y_test, y_pred, normalize=True)
@@ -452,9 +434,6 @@ class LazyClassifier:
 
                 if self.provide_predictions:
                     predictions[name] = y_pred
-                if self.provide_probabilities:
-                    for i in range(y_prob.shape[1]):
-                        probabilities[f"{name}_class_{i}"] = y_prob[:, i]
 
             except Exception as exception:
                 if self.ignore_warnings is False:
@@ -479,14 +458,11 @@ class LazyClassifier:
 
         if self.provide_predictions:
             predictions_df = pd.DataFrame.from_dict(predictions)
-        if self.provide_probabilities:
-            probabilities_df = pd.DataFrame.from_dict(probabilities)
 
         logger.disabled = False
         return (
             scores,
             predictions_df if self.provide_predictions else None,
-            probabilities_df if self.provide_probabilities else None,
             self.models if self.provide_models else None,
         )
 
