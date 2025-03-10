@@ -78,16 +78,17 @@ pd.set_option("display.precision", 2)
 pd.set_option("display.float_format", lambda x: "%.2f" % x)
 
 removed_classifiers = [
+    "CalibratedClassifierCV",
     "ClassifierChain",
     "ComplementNB",
     "FixedThresholdClassifier",
     "GradientBoostingClassifier",
     "GaussianProcessClassifier",
     "HistGradientBoostingClassifier",
-    "MLPClassifier",
+    # "MLPClassifier",
     "LogisticRegressionCV",
     "MultiOutputClassifier",
-    "MultinomialNB",
+    # "MultinomialNB",
     "OneVsOneClassifier",
     "OneVsRestClassifier",
     "OutputCodeClassifier",
