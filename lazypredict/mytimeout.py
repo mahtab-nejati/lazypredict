@@ -29,6 +29,7 @@ def timeout(seconds):
             start_time = time.time()
             process.start()
 
+            log_counter = 1
             while time.time() - start_time < seconds:
                 try:
                     result = result_queue.get_nowait()
@@ -36,7 +37,10 @@ def timeout(seconds):
                     result = None
                 if result is not None:
                     break
-                time.sleep(1)
+                time.sleep(2)
+                if (time.time() - start_time) // 60 == 60 * 5 * log_counter:
+                    print("Timeout process still alive.")
+                    log_counter += 1
             else:
                 result = None
 
