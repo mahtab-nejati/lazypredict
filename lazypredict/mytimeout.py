@@ -1,7 +1,6 @@
 import multiprocessing
 from queue import Empty
 import time
-import sys
 
 
 class TimeoutException(Exception):
@@ -29,26 +28,25 @@ def timeout(seconds):
             start_time = time.time()
             process.start()
 
-            log_counter = 1
-            while time.time() - start_time < seconds:
+            while (time.time() - start_time) < seconds:
                 try:
                     result = result_queue.get_nowait()
                 except Empty:
                     result = None
                 if result is not None:
                     break
-                time.sleep(2)
-                if (time.time() - start_time) // 60 == 60 * 5 * log_counter:
-                    print("Timeout watchdog process still alive.")
-                    log_counter += 1
+                time.sleep(1)
+                # if (time.time() - start_time) // 60 == 60 * 5 * log_counter:
+                print("Watchdog still running.")
+                # log_counter += 1
             else:
+                print("Time is up!")
                 result = None
 
-            process.join()
             process.terminate()
             if result is None:
                 raise TimeoutError(
-                    f"{func.__name__} took longer than {seconds} seconds to complete."
+                    f"{func.__name__} took longer than {seconds//60} minutes {seconds%60} seconds to complete."
                 )
             if isinstance(result, Exception):
                 raise result
