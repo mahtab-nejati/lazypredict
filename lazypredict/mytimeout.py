@@ -83,10 +83,10 @@ def timeout(seconds):
                 if (
                     time.time() - start_time
                 ) >= 60 * 5 * log_counter:  # log every 5 mins
-                    logger.info(f"{time.ctime(time.time())} Watchdog still running...")
+                    logger.info(f"Watchdog still running...")
                     log_counter += 1
             else:
-                logger.info(f"{time.ctime(time.time())} Time is up!")
+                logger.info(f"Time is up!")
                 result = None
 
             process.terminate()
