@@ -28,6 +28,7 @@ def timeout(seconds):
             start_time = time.time()
             process.start()
 
+            log_counter = 1
             while (time.time() - start_time) < seconds:
                 try:
                     result = result_queue.get_nowait()
@@ -36,11 +37,13 @@ def timeout(seconds):
                 if result is not None:
                     break
                 time.sleep(1)
-                # if (time.time() - start_time) // 60 == 60 * 5 * log_counter:
-                print("Watchdog still running.")
-                # log_counter += 1
+                if (
+                    time.time() - start_time
+                ) >= 60 * 5 * log_counter:  # log every 5 mins
+                    print(f"{time.ctime(time.time())} Watchdog still running...")
+                    log_counter += 1
             else:
-                print("Time is up!")
+                print(f"{time.ctime(time.time())} Time is up!")
                 result = None
 
             process.terminate()
