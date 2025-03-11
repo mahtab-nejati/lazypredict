@@ -1,3 +1,46 @@
+"""
+Logging Config
+"""
+
+import logging.config
+
+LOG_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": True,
+    "formatters": {
+        "customized": {
+            "format": "%(asctime)s: %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+    },
+    "loggers": {
+        "": {
+            "handlers": [
+                "consoleHandler",
+            ],
+            "level": "DEBUG",
+            "propagate": True,
+        },
+    },
+    "handlers": {
+        "consoleHandler": {
+            "level": "DEBUG",
+            "formatter": "customized",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+        }
+    },
+}
+
+logging.config.dictConfig(config=LOG_CONFIG)
+logging.captureWarnings(True)
+
+logger = logging.getLogger("")
+
+"""
+Functionality
+"""
+
 import multiprocessing
 from queue import Empty
 import time
@@ -40,10 +83,10 @@ def timeout(seconds):
                 if (
                     time.time() - start_time
                 ) >= 60 * 5 * log_counter:  # log every 5 mins
-                    print(f"{time.ctime(time.time())} Watchdog still running...")
+                    logger.info(f"{time.ctime(time.time())} Watchdog still running...")
                     log_counter += 1
             else:
-                print(f"{time.ctime(time.time())} Time is up!")
+                logger.info(f"{time.ctime(time.time())} Time is up!")
                 result = None
 
             process.terminate()
