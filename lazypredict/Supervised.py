@@ -388,8 +388,10 @@ class LazyClassifier:
                     logger.info("Predicting...")
                     y_pred = pipe.predict(X_test)
                 else:
-                    logger.info(f"With time limit of {time_limit_per_model}.")
-
+                    logger.info(
+                        f"With time limit of {time_limit_per_model//60}m:{time_limit_per_model%60}s."
+                    )
+                    
                     @timeout(time_limit_per_model)
                     def fit_predict():
                         logger.info("Fitting...")
@@ -686,21 +688,23 @@ class LazyRegressor:
         for name, model in tqdm(self.regressors):
             logger.info("")
             logger.info(f"Working on model {name}")
+            gc.collect()
             start = time.time()
+
+            if "random_state" in model().get_params().keys():
+                model_step = [("regressor", model(random_state=self.random_state))]
+            else:
+                model_step = [("regressor", model())]
+
+            pipeline_steps = preprocess_step + model_step
+            pipe = Pipeline(steps=pipeline_steps)
+
             try:
-                if "random_state" in model().get_params().keys():
-                    model_step = [("regressor", model(random_state=self.random_state))]
-                else:
-                    model_step = [("regressor", model())]
-
-                pipeline_steps = preprocess_step + model_step
-                pipe = Pipeline(steps=pipeline_steps)
-
                 if time_limit_per_model is None:
                     logger.info("No time limit.")
-                    logger.info("Start Fitting.")
+                    logger.info("Fitting...")
                     pipe.fit(X_train, y_train)
-                    logger.info("Start predicting.")
+                    logger.info("Predicting...")
                     y_pred = pipe.predict(X_test)
                 else:
                     logger.info(
@@ -709,21 +713,13 @@ class LazyRegressor:
 
                     @timeout(time_limit_per_model)
                     def fit_predict():
-                        try:
-                            logger.info("Start Fitting.")
-                            pipe.fit(X_train, y_train)
-                            logger.info("Start predicting.")
-                            y_pred = pipe.predict(X_test)
-                            return pipe, y_pred
-                        except Exception as exception:
-                            return None, None, exception
+                        logger.info("Fitting...")
+                        pipe.fit(X_train, y_train)
+                        logger.info("Predicting...")
+                        y_pred = pipe.predict(X_test)
+                        return (pipe, y_pred)
 
-                    pipe, y_pred, exception = fit_predict()
-                    if not exception is None:
-                        if self.ignore_warnings is False:
-                            logger.info(name + " model failed to execute.")
-                            logger.info(exception)
-                        continue
+                    pipe, y_pred = fit_predict()
 
                 logger.info("Calculating r2_score.")
                 r_squared = r2_score(y_test, y_pred)
@@ -754,6 +750,7 @@ class LazyRegressor:
                         "R-Squared": r_squared,
                         "Adjusted R-Squared": adj_rsquared,
                         "RMSE": rmse,
+                        self.custom_metric.__name__: custom_metric,
                         "Time taken": time.time() - start,
                     }
                     if self.custom_metric is not None:
