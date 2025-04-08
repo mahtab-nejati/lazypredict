@@ -391,7 +391,7 @@ class LazyClassifier:
                     logger.info(
                         f"With time limit of {time_limit_per_model//60}m:{time_limit_per_model%60}s."
                     )
-                    
+
                     @timeout(time_limit_per_model)
                     def fit_predict():
                         logger.info("Fitting...")
@@ -439,7 +439,6 @@ class LazyClassifier:
                         "Balanced Accuracy": b_accuracy,
                         "ROC AUC": roc_auc,
                         "F1 Score": f1,
-                        self.custom_metric.__name__: custom_metric,
                         "Time taken": time.time() - start,
                     }
                     if self.custom_metric is not None:
@@ -750,7 +749,6 @@ class LazyRegressor:
                         "R-Squared": r_squared,
                         "Adjusted R-Squared": adj_rsquared,
                         "RMSE": rmse,
-                        self.custom_metric.__name__: custom_metric,
                         "Time taken": time.time() - start,
                     }
                     if self.custom_metric is not None:
