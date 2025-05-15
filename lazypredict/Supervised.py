@@ -389,7 +389,7 @@ class LazyClassifier:
                 else:
                     model_step = [("classifier", model())]
             else:
-                model_step = [("classifier", model())]
+                model_step = [("classifier", model)]
 
             pipeline_steps = preprocess_step + model_step
             pipe = Pipeline(steps=pipeline_steps)
@@ -721,7 +721,7 @@ class LazyRegressor:
                 else:
                     model_step = [("regressor", model())]
             else:
-                model_step = [("regressor", model())]
+                model_step = [("regressor", model)]
 
             pipeline_steps = preprocess_step + model_step
             pipe = Pipeline(steps=pipeline_steps)
