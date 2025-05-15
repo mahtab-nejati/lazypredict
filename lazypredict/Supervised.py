@@ -203,7 +203,7 @@ class LazyClassifier:
     preprocess_data: Bool, optional (default=False)
         When set to True, default preprocessing will be applied to the data.
     classifiers : list, optional (default="all")
-        When function is provided, trains the chosen classifier(s).
+        When function name is provided, trains the chosen classifier(s).
     exclude_classifiers : list, optional (default=[])
         When function name is provided, excludes the chosen classifier(s) from training.
 
@@ -277,7 +277,14 @@ class LazyClassifier:
         self.excluded_classifiers = exclude_classifiers
 
     def fit(
-        self, X_train, X_test, y_train, y_test, time_limit_per_model=None, verbose=True
+        self,
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        models=None,
+        time_limit_per_model=None,
+        verbose=True,
     ):
         """Fit Classification algorithms to X_train and y_train, predict and score on X_test, y_test.
         Parameters
@@ -346,7 +353,9 @@ class LazyClassifier:
         else:
             preprocess_step = []
 
-        if self.classifiers == "all":
+        if models is not None:
+            self.classifiers = list(models.items())
+        elif self.classifiers == "all":
             self.classifiers = CLASSIFIERS
         else:
             try:
@@ -372,8 +381,11 @@ class LazyClassifier:
             gc.collect()
             start = time.time()
 
-            if "random_state" in model().get_params().keys():
-                model_step = [("classifier", model(random_state=self.random_state))]
+            if models is None:
+                if "random_state" in model().get_params().keys():
+                    model_step = [("classifier", model(random_state=self.random_state))]
+                else:
+                    model_step = [("classifier", model())]
             else:
                 model_step = [("classifier", model())]
 
@@ -506,7 +518,7 @@ class LazyRegressor:
     preprocess_data: Bool, optional (default=False)
         When set to True, default preprocessing will be applied to the data.
     regressors : list, optional (default="all")
-        When function is provided, trains the chosen regressor(s).
+        When function name is provided, trains the chosen regressor(s).
     exclude_regressors : list, optional (default=[])
         When function name is provided, excludes the chosen regressor(s) from training.
 
@@ -597,7 +609,14 @@ class LazyRegressor:
         self.excluded_regressors = exclude_regressors
 
     def fit(
-        self, X_train, X_test, y_train, y_test, time_limit_per_model=None, verbose=True
+        self,
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        models=None,
+        time_limit_per_model=None,
+        verbose=True,
     ):
         """Fit Regression algorithms to X_train and y_train, predict and score on X_test, y_test.
         Parameters
@@ -666,7 +685,9 @@ class LazyRegressor:
         else:
             preprocess_step = []
 
-        if self.regressors == "all":
+        if models is not None:
+            self.regressors = list(models.items())
+        elif self.regressors == "all":
             self.regressors = REGRESSORS
         else:
             try:
@@ -690,8 +711,11 @@ class LazyRegressor:
             gc.collect()
             start = time.time()
 
-            if "random_state" in model().get_params().keys():
-                model_step = [("regressor", model(random_state=self.random_state))]
+            if models is None:
+                if "random_state" in model().get_params().keys():
+                    model_step = [("regressor", model(random_state=self.random_state))]
+                else:
+                    model_step = [("regressor", model())]
             else:
                 model_step = [("regressor", model())]
 
