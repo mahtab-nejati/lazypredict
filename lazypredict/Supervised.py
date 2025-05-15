@@ -301,6 +301,8 @@ class LazyClassifier:
         y_test : array-like,
             Testing vectors, where rows is the number of samples
             and columns is the number of features.
+        models: Dictionary of (str, initialized classifiers)
+            If provided, will compare these models only.
         time_limit_per_model : Int,
             Seconds allowed for fitting each model on data. Raises
             TimeoutException if it exceeds the time limit.
@@ -633,6 +635,8 @@ class LazyRegressor:
         y_test : array-like,
             Testing vectors, where rows is the number of samples
             and columns is the number of features.
+        models: Dictionary of (str, initialized regressors)
+            If provided, will compare these models only.
         time_limit_per_model : Int,
             Seconds allowed for fitting each model on data. Raises
             TimeoutException if it exceeds the time limit.
